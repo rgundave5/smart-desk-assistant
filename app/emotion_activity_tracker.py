@@ -8,8 +8,9 @@ import glob
 CLIP_DURATION = 5          # seconds per clip
 OUTPUT_DIR = "clips"       # folder to save clips
 MAX_CAM_INDEX = 3          # will try indices 0..2
-API_KEY = "H3XeEJEsPwcBY5gQB1Nhq92MsHelQz_vhtdzQlvSUgPuS0gmyATYAu_oVwSfUSeiUxM"   # Replace with your real key
+API_KEY = "H3XeEJEsPwcBY5gQB1Nhq92MsHelQz_vhtdzQlvSUgPuS0gmyATYAu_oVwSfUSeiUxM"   
 OVERRIDE_THRESHOLD = 0.1
+SLEEP_BETWEEN_CLIPS = 20
 # ============================
 
 if not os.path.exists(OUTPUT_DIR):
@@ -37,7 +38,7 @@ def record_clip(filename, duration=CLIP_DURATION):
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     cap.set(cv2.CAP_PROP_FPS, 20)
 
-    fourcc = cv2.VideoWriter_fourcc(*'MJPG')  # stable codec for macOS
+    fourcc = cv2.VideoWriter_fourcc(*'MJPG')  
     out = cv2.VideoWriter(filename, fourcc, 20.0, (640, 480))
 
     start_time = time.time()
@@ -54,15 +55,6 @@ def record_clip(filename, duration=CLIP_DURATION):
     out.release()
     print(f"[INFO] Clip saved: {filename} ({frames_written} frames written)")
     return frames_written > 0
-
-# ======= RECORD CLIP =======
-timestamp = time.strftime("%Y%m%d_%H%M%S")
-clip_path = os.path.join(OUTPUT_DIR, f"clip_{timestamp}.avi")
-success = record_clip(clip_path)
-
-if not success:
-    print("[ERROR] Clip recording failed. Exiting.")
-    exit()
 
 # ======= USE MOST RECENT CLIP =======
 latest_clip = max(glob.glob(f"{OUTPUT_DIR}/*.avi"), key=os.path.getctime)
@@ -82,7 +74,6 @@ def upload_clip(filename):
     try:
         with open(filename, 'rb') as f:
             files = {
-               #'video_file': f,
                "video_file": (os.path.basename(filename), f, "video/avi"),
                 'title': (None, os.path.basename(filename)),  
                 'description': (None, "Auto-uploaded test clip from Smart Desk Assistant"),
@@ -140,18 +131,44 @@ def get_aggregate_emotions(video_id):
 def get_video_status(video_id):
     url = f"https://api.imentiv.ai/v1/videos/{video_id}"
     headers = {"X-API-Key": API_KEY, "accept": "application/json"}
-    res = requests.get(url, headers=headers)
-    if res.status_code == 200:
+    res = requests.get(url, headers=headers, timeout=10)
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
         data = res.json()
-        return data.get("status")
-    else:
-        print(f"[ERROR] Failed to get video status: {res.text}")
+
+        if res.status_code != 200:
+            print(f"[ERROR] Failed to get video status ({res.status_code}): {res.text}")
+            return None
+
+        # Debug and safety check
+        if not isinstance(data, dict):
+            print(f"[ERROR] Unexpected response format: {data}")
+            return None
+
+        if "status" not in data:
+            if "detail" in data:
+                print(f"[DEBUG] API returned detail: {data['detail']}")
+            else:
+                print(f"[ERROR] 'status' field missing in response: {data}")
+            return None
+
+        # If everything is fine
+        print(f"[DEBUG] Video status: {data['status']}")
+        return data["status"]
+
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] API connection error: {e}")
         return None
+
+    except Exception as e:
+        print(f"[ERROR] Unexpected error in get_video_status: {e}")
+        return None
+
 
 # ======= WAIT UNTIL READY =======
 if video_id:
     print("[INFO] Waiting for video to finish processing...")
-    for attempt in range(20):  # ~5 minutes total
+    for attempt in range(20): 
         status = get_video_status(video_id)
         print(f"[DEBUG] Status check {attempt+1}: {status}")
         if status == "completed":
@@ -176,8 +193,9 @@ if emotions:
             if emo != "neutral" and val > OVERRIDE_THRESHOLD:
                 dominant = emo
                 dominant_value = val
-                break  # take the first significant non-neutral emotion
+                break 
 
+# emotions
     if dominant in ["happy", "surprised"]:
         state = "happy/focused/motivated"
     elif dominant in ["neutral"]:
