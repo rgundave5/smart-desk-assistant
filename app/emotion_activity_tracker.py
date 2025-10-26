@@ -3,12 +3,13 @@ import time
 import os
 import requests
 import glob
+import pandas as pd  # Added import for CSV handling
 
 # ========== CONFIG ==========
 CLIP_DURATION = 5          # seconds per clip
 OUTPUT_DIR = "clips"       # folder to save clips
 MAX_CAM_INDEX = 3          # will try indices 0..2
-API_KEY = "H3XeEJEsPwcBY5gQB1Nhq92MsHelQz_vhtdzQlvSUgPuS0gmyATYAu_oVwSfUSeiUxM"   
+API_KEY = "H3XeEJEsPwcBY5gQB1Nhq92MsHelQz_vhtdzQlvSUgPuS0gmyATYAu_oVwSfUSeiUxM"   # Replace with your real key
 OVERRIDE_THRESHOLD = 0.1
 SLEEP_BETWEEN_CLIPS = 20
 # ============================
@@ -17,7 +18,6 @@ if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
 def find_working_camera(max_index=MAX_CAM_INDEX):
-    """Tries multiple camera indices until one works"""
     for i in range(max_index):
         cap = cv2.VideoCapture(i)
         ret, _ = cap.read()
@@ -56,16 +56,24 @@ def record_clip(filename, duration=CLIP_DURATION):
     print(f"[INFO] Clip saved: {filename} ({frames_written} frames written)")
     return frames_written > 0
 
+# ======= RECORD CLIP =======
+timestamp = time.strftime("%Y%m%d_%H%M%S")
+clip_path = os.path.join(OUTPUT_DIR, f"clip_{timestamp}.avi")
+success = record_clip(clip_path)
+
+if not success:
+    print("[ERROR] Clip recording failed. Exiting.")
+    exit()
+
 # ======= USE MOST RECENT CLIP =======
 latest_clip = max(glob.glob(f"{OUTPUT_DIR}/*.avi"), key=os.path.getctime)
 print(f"[INFO] Using latest clip: {latest_clip}")
 
-# ======= UPLOAD TO IMENTIV =======
 def upload_clip(filename):
     if not os.path.exists(filename):
         print(f"[ERROR] File not found: {filename}")
         return None
-    url = f"https://api.imentiv.ai/v1/videos"
+    url = "https://api.imentiv.ai/v1/videos"
     headers = {
         "X-API-Key": API_KEY,
         "Referer": "https://imentiv.ai",
@@ -74,17 +82,19 @@ def upload_clip(filename):
     try:
         with open(filename, 'rb') as f:
             files = {
+               #'video_file': f,
                "video_file": (os.path.basename(filename), f, "video/avi"),
                 'title': (None, os.path.basename(filename)),  
                 'description': (None, "Auto-uploaded test clip from Smart Desk Assistant"),
-                'generate_audio_summary': (None, 'false')
+                'generate_audio_summary': (None, 'false'),
+                'generate_annotated_video': (None, 'false')
             }
             response = requests.post(url, headers=headers, files=files)
             print(f"[DEBUG] Raw API response: {response.text}")
 
-        if response.status_code == (200, 201):
+        if response.status_code in (200, 201):
             data = response.json()
-            video_id = data.get("video_id") or data.get("video_id")
+            video_id = data.get("video_id") or data.get("id")
             print(f"[INFO] Uploaded video. ID: {video_id}, status: {data.get('status')}")
             return video_id
         elif response.status_code == 202 or "processing" in response.text:
@@ -101,7 +111,6 @@ def upload_clip(filename):
 
 video_id = upload_clip(latest_clip)
 
-# ======= FETCH EMOTIONS =======
 def get_aggregate_emotions(video_id):
     if not video_id:
         print("[WARN] No video ID provided.")
@@ -127,7 +136,6 @@ def get_aggregate_emotions(video_id):
         print(f"[ERROR] Exception during emotion fetch: {e}")
         return None
 
-# ======= CHECK PROCESSING STATUS =======
 def get_video_status(video_id):
     url = f"https://api.imentiv.ai/v1/videos/{video_id}"
     headers = {"X-API-Key": API_KEY, "accept": "application/json"}
@@ -164,7 +172,6 @@ def get_video_status(video_id):
         print(f"[ERROR] Unexpected error in get_video_status: {e}")
         return None
 
-
 # ======= WAIT UNTIL READY =======
 if video_id:
     print("[INFO] Waiting for video to finish processing...")
@@ -182,7 +189,6 @@ if video_id:
 else:
     print("[WARN] No video ID — skipping emotion check.")
 
-# ======= SAFE PRODUCTIVITY MAPPING =======
 if emotions:
     dominant = max(emotions, key=emotions.get).lower()
     dominant_value = emotions[dominant]
@@ -193,14 +199,14 @@ if emotions:
             if emo != "neutral" and val > OVERRIDE_THRESHOLD:
                 dominant = emo
                 dominant_value = val
-                break 
+                break  # take the first significant non-neutral emotion
 
 # emotions
     if dominant in ["happy", "surprised"]:
         state = "happy/focused/motivated"
-    elif dominant in ["neutral"]:
+    elif dominant == "neutral":
         state = "neutral/focused"
-    elif dominant in ["tired"]:
+    elif dominant == "tired":
         state = "tired/drained"
     elif dominant in ["sad", "disgust", "fear"]:
         state = "fatigued/stressed"
@@ -209,11 +215,21 @@ if emotions:
     else:
         state = "unknown"
     print(f"[INFO] Productivity state: {state}")
+
+    # ======= Added code to save results to CSV for Flask API =======
+    result_row = {
+        "timestamp": timestamp,                    # timestamp of clip
+        "emotion": dominant,                       # dominant emotion
+        "emotion_conf": dominant_value,            # confidence value
+        "productivity": state,                     # computed productivity state
+    }
+
+    csv_file = "emotion_results.csv"
+    if os.path.exists(csv_file):
+        df = pd.read_csv(csv_file)
+        df = pd.concat([df, pd.DataFrame([result_row])], ignore_index=True)
+    else:
+        df = pd.DataFrame([result_row])
+    df.to_csv(csv_file, index=False)  # Save or update CSV after each clip
 else:
     print("[WARN] Emotions not available. Skipping productivity mapping.")
-
-def get_video_status(video_id):
-    url = f"https://api.imentiv.ai/v1/videos/{video_id}"
-    headers = {"X-API-Key": API_KEY, "accept": "application/json"}
-    res = requests.get(url, headers=headers)
-    print("[DEBUG]", res.text)

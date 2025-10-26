@@ -1,6 +1,7 @@
 from datetime import datetime
 from db import Session
 from models import SessionModel, EmotionModel
+import requests
 
 def start_session(params):
     db_session = Session()
@@ -24,6 +25,23 @@ def stop_session(params):
     return {"session_id": session_id, "ended_at": ended_at.isoformat() if ended_at else None}
 
 def send_emotion_data(params):
+
+    raw_clip = params.get("raw_clip")  # Example: base64 or file URL of the clip
+
+    # Call Imentiv Emotion API
+    # Replace 'YOUR_IMENTIV_ENDPOINT' and add authentication headers as needed
+    response = requests.post(
+        "https://api.imentiv.ai/emotion",  
+        json={"clip": raw_clip},
+        headers={"Authorization": "Bearer YOUR_API_KEY"}
+    )
+
+    emotion_result = response.json().get("emotion")
+
+    # Now store the emotion result in your DB using your ORM as usual
+    session_id = params.get("session_id")
+    timestamp = params.get("timestamp")
+
     session_id = params.get("session_id")
     emotion = params.get("emotion")
     timestamp = params.get("timestamp")  # Should be in ISO or datetime format

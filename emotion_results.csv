@@ -1,0 +1,4 @@
+timestamp,emotion,emotion_conf,productivity
+20251026_072545,happy,0.1996485722643607,happy/focused/motivated
+20251026_073518,sad,0.2659828788802508,fatigued/stressed
+20251026_073848,contempt,0.1049798332544394,unknown
