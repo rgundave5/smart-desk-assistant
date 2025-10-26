@@ -1,0 +1,46 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Run Flask/FastMCP Server",
+            "type": "shell",
+            // **CRITICAL: Verify this path**
+            "command": "python mcp-server-lumora/src/server.py", 
+            "group": "build",
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Streamlit Dashboard",
+            "type": "shell",
+            // **CRITICAL: Verify this path**
+            "command": "streamlit run app/tracker_scripts/emotion_app.py",
+            "group": "build",
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Figma UI (Frontend)",
+            "type": "shell",
+            "options": {
+                "cwd": "${workspaceFolder}/interface/Figma-setup"
+            },
+            "command": "npm run dev", // Assumes your frontend package.json has a 'dev' script
+            "group": "build",
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "Start All Services",
+            "dependsOn": [
+                "Run Flask/FastMCP Server",
+                "Run Streamlit Dashboard",
+                "Run Figma UI (Frontend)"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}
